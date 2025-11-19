@@ -34,7 +34,7 @@ export default function Navbar({ onReset }) {
               </h1>
             </Link>
           </div>
-          <div className="flex items-center gap-4 text-sm text-gray-600">
+          <div className="flex items-center gap-4 text-sm text-gray-600 xs:ml-12">
             <div className="flex items-center gap-1">
               <Star className="w-4 h-4 fill-orange-400 text-orange-400" />
               <span>Top Rated</span>

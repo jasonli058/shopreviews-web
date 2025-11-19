@@ -10,6 +10,20 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  
+    /* custom fonts */
+  --font-body: 'Quicksand', sans-serif;
+
+  /* custom breakpoints */
+  --breakpoint-up_until: 660px;
+  --breakpoint-xs: 300px;
+  --breakpoint-sm: 640px;
+  --breakpoint-md: 768px;
+  --breakpoint-medd: 748px;
+  --breakpoint-l: 1024px;
+  --breakpoint-lg: 1289px;
+  --breakpoint-xl: 1280px;
+  --breakpoint-2xl: 1536px;
 }
 
 @media (prefers-color-scheme: dark) {
