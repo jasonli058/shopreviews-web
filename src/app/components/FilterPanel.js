@@ -6,10 +6,10 @@ import { SlidersHorizontal, X, ChevronDown, ChevronUp } from 'lucide-react';
 export default function FilterPanel({ filters, onFilterChange, onApplyFilters }) {
   const [isOpen, setIsOpen] = useState(false);
   const [expandedSections, setExpandedSections] = useState({
-    price: true,
-    rating: true,
-    reviews: true,
-    results: true
+    price: false,
+    rating: false,
+    reviews: false,
+    results: false
   });
 
   const toggleSection = (section) => {
