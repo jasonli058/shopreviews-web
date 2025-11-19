@@ -9,6 +9,11 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.69.0",
+    "@huggingface/inference": "^4.13.3",
+    "@supabase/supabase-js": "^2.81.1",
+    "cheerio": "^1.1.2",
+    "lucide-react": "^0.554.0",
     "next": "16.0.3",
     "react": "19.2.0",
     "react-dom": "19.2.0"
@@ -17,6 +22,7 @@
     "@tailwindcss/postcss": "^4",
     "eslint": "^9",
     "eslint-config-next": "16.0.3",
+    "tailwind-scrollbar": "^4.0.2",
     "tailwindcss": "^4"
   }
 }

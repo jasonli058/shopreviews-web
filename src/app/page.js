@@ -1,65 +1,340 @@
-import Image from "next/image";
+'use client';
+
+import { useState } from 'react';
+import { Search, Loader2 } from 'lucide-react';
+import ProductCard from './components/ProductCard';
+import LoadingState from './components/LoadingState';
+import EmptyState from './components/EmptyState';
+import Navbar from './components/Navbar';
+import FilterPanel from './components/FilterPanel';
+import SortDropdown from './components/SortDropdown'; //idk why this is broken but yes
 
 export default function Home() {
+  const [query, setQuery] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [products, setProducts] = useState([]);
+  const [allProducts, setAllProducts] = useState([]); // store unfiltered results
+  const [hasSearched, setHasSearched] = useState(false);
+  const [sortBy, setSortBy] = useState('price-high'); // new sort state
+  
+  // filter states for the new filter syste,=m
+  const [filters, setFilters] = useState({
+    priceMin: 0,
+    priceMax: 1000,
+    minRating: 4.0,
+    minReviews: 50,
+    maxResults: 5
+  });
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!query.trim()) return;
+
+    setIsLoading(true);
+    setHasSearched(true);
+    
+    try {
+      const response = await fetch('/api/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          query,
+          filters: {
+            minRating: filters.minRating,
+            minReviews: filters.minReviews,
+            maxResults: filters.maxResults
+          }
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Search failed');
+      }
+
+      const data = await response.json();
+      
+      // store all products for client-side filtering
+      setAllProducts(data.products);
+      
+      // apply filters
+      const filtered = applyClientFilters(data.products, filters);
+      setProducts(filtered);
+      
+      if (data.cached) {
+        console.log('✅ Results loaded from cache');
+      }
+    } catch (error) {
+      console.error('Search error:', error);
+      alert('Failed to search. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // apply client-side filters (price filtering happens here)
+  const applyClientFilters = (productList, currentFilters) => {
+    let filtered = [...productList];
+
+    // price filter
+    filtered = filtered.filter(p => 
+      p.price >= currentFilters.priceMin && 
+      p.price <= currentFilters.priceMax
+    );
+
+    // apply sorting
+    filtered = applySorting(filtered, sortBy);
+
+    // limit results (FIXED: Now uses filter value!)
+    filtered = filtered.slice(0, currentFilters.maxResults);
+
+    return filtered;
+  };
+
+  // apply sorting based on current sort option
+  const applySorting = (productList, sortOption) => {
+    const sorted = [...productList];
+    
+    switch (sortOption) {
+      case 'price-high':
+        return sorted.sort((a, b) => b.price - a.price);
+      case 'price-low':
+        return sorted.sort((a, b) => a.price - b.price);
+      case 'rating-high':
+        return sorted.sort((a, b) => b.rating - a.rating);
+      case 'rating-low':
+        return sorted.sort((a, b) => a.rating - b.rating);
+      case 'reviews-high':
+        return sorted.sort((a, b) => b.reviewCount - a.reviewCount);
+      case 'reviews-low':
+        return sorted.sort((a, b) => a.reviewCount - b.reviewCount);
+      default:
+        return sorted.sort((a, b) => b.price - a.price);
+    }
+  };
+
+  // handle sort change
+  const handleSortChange = (newSort) => {
+    setSortBy(newSort);
+    // apply filters immediately with the new sort
+    if (allProducts.length > 0) {
+      let filtered = [...allProducts];
+      
+      // apply price filter
+      filtered = filtered.filter(p => 
+        p.price >= filters.priceMin && 
+        p.price <= filters.priceMax
+      );
+      
+      // apply sorting with NEW sort value
+      filtered = applySorting(filtered, newSort);
+      
+      // limit results
+      filtered = filtered.slice(0, filters.maxResults);
+      
+      setProducts(filtered);
+    }
+  };
+
+  // handle filter changes
+  const handleFilterChange = (newFilters) => {
+    setFilters(newFilters);
+  };
+
+  // apply filters to existing results
+  const handleApplyFilters = () => {
+    if (allProducts.length > 0) {
+      const filtered = applyClientFilters(allProducts, filters);
+      setProducts(filtered);
+    }
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit(e);
+    }
+  };
+
+  const handleReset = () => {
+    setQuery('');
+    setProducts([]);
+    setAllProducts([]);
+    setHasSearched(false);
+    setSortBy('price-high'); // Reset sort
+    setFilters({
+      priceMin: 0,
+      priceMax: 1000,
+      minRating: 4.0,
+      minReviews: 50,
+      maxResults: 5
+    });
+  };
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.js file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="min-h-screen bg-gradient-to-br from-orange-50 via-white to-blue-50">
+      
+      {/* navbar */}
+      <Navbar onReset={handleReset}/>
+
+      {/* main content */}
+      <main className="max-w-6xl mx-auto px-4 py-8">
+
+        {/* search section */}
+        <div className="mb-8">
+          <div className="text-center mb-6">
+            <h2 className="text-4xl font-bold text-gray-900 mb-3">
+              Find Your Perfect Product
+            </h2>
+            <p className="text-lg text-gray-600">
+              AI-powered search for the highest-rated Amazon products
+            </p>
+          </div>
+
+          {/* search bar with a filter */}
+          <div className="max-w-3xl mx-auto space-y-3">
+            <div className="bg-white rounded-2xl shadow-lg border-2 border-gray-200 focus-within:border-orange-500 transition-colors">
+              <div className="flex items-end gap-3 p-4">
+                <textarea
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="What are you looking for? (e.g., 'durable water bottle for hiking')"
+                  className="flex-1 resize-none outline-none text-gray-900 placeholder-gray-400 min-h-[60px] max-h-[200px]"
+                  rows="2"
+                />
+                <button
+                  onClick={handleSubmit}
+                  disabled={!query.trim() || isLoading}
+                  className="bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 disabled:from-gray-300 disabled:to-gray-400 text-white p-3 rounded-xl transition-all duration-200 disabled:cursor-not-allowed flex-shrink-0"
+                >
+                  {isLoading ? (
+                    <Loader2 className="w-6 h-6 animate-spin" />
+                  ) : (
+                    <Search className="w-6 h-6" />
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* filter button row */}
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-gray-500">
+                Press Enter to search • AI will find products with your perfect requirements!
+              </p>
+              <FilterPanel 
+                filters={filters}
+                onFilterChange={handleFilterChange}
+                onApplyFilters={handleApplyFilters}
+              />
+            </div>
+
+            {/* active filters display */}
+            {(filters.priceMin > 0 || filters.priceMax < 1000 || filters.minRating > 4.0 || filters.minReviews > 50 || filters.maxResults !== 5) && (
+              <div className="flex flex-wrap gap-2 items-center">
+                <span className="text-sm text-gray-600 font-medium">Active filters:</span>
+                {filters.priceMin > 0 || filters.priceMax < 1000 ? (
+                  <span className="px-3 py-1 bg-orange-100 text-orange-700 rounded-full text-sm font-medium">
+                    ${filters.priceMin} - ${filters.priceMax}
+                  </span>
+                ) : null}
+                {filters.minRating > 4.0 && (
+                  <span className="px-3 py-1 bg-orange-100 text-orange-700 rounded-full text-sm font-medium">
+                    {filters.minRating}★ Min.
+                  </span>
+                )}
+                {filters.minReviews > 50 && (
+                  <span className="px-3 py-1 bg-orange-100 text-orange-700 rounded-full text-sm font-medium">
+                    {filters.minReviews}+ Reviews.
+                  </span>
+                )}
+                {filters.maxResults !== 5 && (
+                  <span className="px-3 py-1 bg-orange-100 text-orange-700 rounded-full text-sm font-medium">
+                    Top {filters.maxResults}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+
+        {/* results section */}
+        <div className="mt-12">
+          {isLoading ? (
+            <LoadingState />
+          ) : products.length > 0 ? (
+            <>
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-2xl font-bold text-gray-900">
+                  Top {products.length} Results
+                </h3>
+                {/* dropdown sort here */}
+                <SortDropdown 
+                  currentSort={sortBy}
+                  onSortChange={handleSortChange}
+                />
+              </div>
+              <div className="space-y-4">
+                {products.map((product, index) => (
+                  <ProductCard 
+                    key={`${product.id}-${index}`} 
+                    product={product} 
+                    rank={index + 1}
+                  />
+                ))}
+              </div>
+
+              {/* show msg if filters excluded products */}
+              {allProducts.length > products.length && (
+                <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg text-center">
+                  <p className="text-sm text-blue-800">
+                    Showing {products.length} of {allProducts.length} products. 
+                    <button 
+                      onClick={() => {
+                        setFilters({
+                          priceMin: 0,
+                          priceMax: 1000,
+                          minRating: 4.0,
+                          minReviews: 50,
+                          maxResults: allProducts.length
+                        });
+                        setProducts(allProducts);
+                      }}
+                      className="ml-2 font-semibold underline hover:text-blue-900"
+                    >
+                      Clear filters to see all
+                    </button>
+                  </p>
+                </div>
+              )}
+            </>
+          ) : hasSearched ? (
+            <div className="text-center py-20">
+              <h3 className="text-2xl font-semibold text-gray-900 mb-2">
+                No products found
+              </h3>
+              <p className="text-gray-600 mb-4">
+                Try adjusting your filters or search query
+              </p>
+              <button
+                onClick={handleReset}
+                className="px-6 py-2 bg-orange-500 text-white rounded-lg font-semibold hover:bg-orange-600 transition-colors"
+              >
+                Start New Search
+              </button>
+            </div>
+          ) : (
+            <EmptyState />
+          )}
         </div>
       </main>
+
+      {/* Footer */}
+      <footer className="border-t mt-20 py-8 bg-white">
+        <div className="max-w-6xl mx-auto px-4 text-center text-sm text-gray-600">
+          <p>As an Amazon Associate, we earn from qualifying purchases.</p>
+          <p className="mt-2">Prices and availability subject to change.</p>
+        </div>
+      </footer>
     </div>
   );
 }
