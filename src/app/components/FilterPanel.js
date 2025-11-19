@@ -91,9 +91,9 @@ export default function FilterPanel({ filters, onFilterChange, onApplyFilters })
                 >
                   <span className="font-semibold text-gray-900"> $ Price Range </span>
                   {expandedSections.price ? (
-                    <ChevronUp className="w-5 h-5" />
+                    <ChevronUp className="w-5 h-5 text-gray-400" />
                   ) : (
-                    <ChevronDown className="w-5 h-5" />
+                    <ChevronDown className="w-5 h-5 text-gray-400" />
                   )}
                 </button>
                 
@@ -155,9 +155,9 @@ export default function FilterPanel({ filters, onFilterChange, onApplyFilters })
                 >
                   <span className="font-semibold text-gray-900">★ Minimum Rating</span>
                   {expandedSections.rating ? (
-                    <ChevronUp className="w-5 h-5" />
+                    <ChevronUp className="w-5 h-5 text-gray-400" />
                   ) : (
-                    <ChevronDown className="w-5 h-5" />
+                    <ChevronDown className="w-5 h-5 text-gray-400" />
                   )}
                 </button>
                 
@@ -201,9 +201,9 @@ export default function FilterPanel({ filters, onFilterChange, onApplyFilters })
                 >
                   <span className="font-semibold text-gray-900">✎﹏ Minimum Reviews</span>
                   {expandedSections.reviews ? (
-                    <ChevronUp className="w-5 h-5" />
+                    <ChevronUp className="w-5 h-5 text-gray-400" />
                   ) : (
-                    <ChevronDown className="w-5 h-5" />
+                    <ChevronDown className="w-5 h-5 text-gray-400" />
                   )}
                 </button>
                 
@@ -250,9 +250,9 @@ export default function FilterPanel({ filters, onFilterChange, onApplyFilters })
                         Results to Show
                     </span>
                   {expandedSections.results ? (
-                    <ChevronUp className="w-5 h-5" />
+                    <ChevronUp className="w-5 h-5 text-gray-400" />
                   ) : (
-                    <ChevronDown className="w-5 h-5" />
+                    <ChevronDown className="w-5 h-5 text-gray-400" />
                   )}
                 </button>
                 
