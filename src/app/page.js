@@ -7,7 +7,7 @@ import LoadingState from './components/LoadingState';
 import EmptyState from './components/EmptyState';
 import Navbar from './components/Navbar';
 import FilterPanel from './components/FilterPanel';
-import SortDropdown from './components/SortDropdown'; //idk why this is broken but yes
+import SortDropdown from './components/SortDropdown';
 
 export default function Home() {
   const [query, setQuery] = useState('');
@@ -15,9 +15,9 @@ export default function Home() {
   const [products, setProducts] = useState([]);
   const [allProducts, setAllProducts] = useState([]); // store unfiltered results
   const [hasSearched, setHasSearched] = useState(false);
-  const [sortBy, setSortBy] = useState('price-high'); // new sort state
+  const [sortBy, setSortBy] = useState('relevance'); // changed default to relevance
   
-  // filter states for the new filter syste,=m
+  // filter states for the new filter system
   const [filters, setFilters] = useState({
     priceMin: 0,
     priceMax: 1000,
@@ -90,31 +90,95 @@ export default function Home() {
     return filtered;
   };
 
-  // apply sorting based on current sort option
+  // apply sorting based on current sort option (with relevance as secondary factor)
   const applySorting = (productList, sortOption) => {
     const sorted = [...productList];
     
     switch (sortOption) {
+      case 'relevance':
+        // Sort by relevance score first, then rating, then reviews
+        return sorted.sort((a, b) => {
+          if (b.relevanceScore !== a.relevanceScore) {
+            return b.relevanceScore - a.relevanceScore;
+          }
+          if (b.rating !== a.rating) {
+            return b.rating - a.rating;
+          }
+          return b.reviewCount - a.reviewCount;
+        });
+        
       case 'price-high':
-        return sorted.sort((a, b) => b.price - a.price);
+        return sorted.sort((a, b) => {
+          if (b.price !== a.price) {
+            return b.price - a.price;
+          }
+          // relevance as tiebreaker
+          return b.relevanceScore - a.relevanceScore;
+        });
+        
       case 'price-low':
-        return sorted.sort((a, b) => a.price - b.price);
+        return sorted.sort((a, b) => {
+          if (a.price !== b.price) {
+            return a.price - b.price;
+          }
+          // relevance as tiebreaker
+          return b.relevanceScore - a.relevanceScore;
+        });
+        
       case 'rating-high':
-        return sorted.sort((a, b) => b.rating - a.rating);
+        return sorted.sort((a, b) => {
+          if (b.rating !== a.rating) {
+            return b.rating - a.rating;
+          }
+          // Relevance as tiebreaker
+          return b.relevanceScore - a.relevanceScore;
+        });
+        
       case 'rating-low':
-        return sorted.sort((a, b) => a.rating - b.rating);
+        return sorted.sort((a, b) => {
+          if (a.rating !== b.rating) {
+            return a.rating - b.rating;
+          }
+          // Relevance as tiebreaker
+          return b.relevanceScore - a.relevanceScore;
+        });
+        
       case 'reviews-high':
-        return sorted.sort((a, b) => b.reviewCount - a.reviewCount);
+        return sorted.sort((a, b) => {
+          if (b.reviewCount !== a.reviewCount) {
+            return b.reviewCount - a.reviewCount;
+          }
+          // Relevance as tiebreaker
+          return b.relevanceScore - a.relevanceScore;
+        });
+        
       case 'reviews-low':
-        return sorted.sort((a, b) => a.reviewCount - b.reviewCount);
+        return sorted.sort((a, b) => {
+          if (a.reviewCount !== b.reviewCount) {
+            return a.reviewCount - b.reviewCount;
+          }
+          // Relevance as tiebreaker
+          return b.relevanceScore - a.relevanceScore;
+        });
+        
       default:
-        return sorted.sort((a, b) => b.price - a.price);
+        // Default to relevance
+        return sorted.sort((a, b) => {
+          if (b.relevanceScore !== a.relevanceScore) {
+            return b.relevanceScore - a.relevanceScore;
+          }
+          if (b.rating !== a.rating) {
+            return b.rating - a.rating;
+          }
+          return b.reviewCount - a.reviewCount;
+        });
     }
   };
 
   // handle sort change
   const handleSortChange = (newSort) => {
     setSortBy(newSort);
+    
     // apply filters immediately with the new sort
     if (allProducts.length > 0) {
       let filtered = [...allProducts];
@@ -160,7 +224,7 @@ export default function Home() {
     setProducts([]);
     setAllProducts([]);
     setHasSearched(false);
-    setSortBy('price-high'); // Reset sort
+    setSortBy('relevance'); // Reset to relevance
     setFilters({
       priceMin: 0,
       priceMax: 1000,
@@ -328,7 +392,7 @@ export default function Home() {
         </div>
       </main>
 
-      {/* Footer */}
+      {/* footer section */}
       <footer className="border-t mt-20 py-8 bg-white">
         <div className="max-w-6xl mx-auto px-4 text-center text-sm text-gray-600">
           <p>As an Amazon Associate, we earn from qualifying purchases.</p>

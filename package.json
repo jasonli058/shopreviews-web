@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.69.0",
+    "@google/generative-ai": "^0.24.1",
     "@huggingface/inference": "^4.13.3",
     "@supabase/supabase-js": "^2.81.1",
     "cheerio": "^1.1.2",

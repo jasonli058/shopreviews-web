@@ -1,13 +1,21 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { ChevronDown, TrendingUp, DollarSign, Star, MessageSquare } from 'lucide-react';
+import { ChevronDown, TrendingUp, DollarSign, Star, MessageSquare, Target } from 'lucide-react';
 
 export default function SortDropdown({ currentSort, onSortChange }) {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
 
   const sortOptions = [
+
+    //added a relevance option (deafult)
+    { 
+      value: 'relevance', 
+      label: 'Relevance', 
+      icon: Target,
+      description: 'Best match for your search'
+    },
     { 
       value: 'price-high', 
       label: 'Price (High to Low)', 

@@ -1,10 +1,15 @@
 import { NextResponse } from 'next/server';
-import { InferenceClient } from '@huggingface/inference';
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import * as cheerio from 'cheerio';
 import { createClient } from '@supabase/supabase-js';
 
-// initialize the hugging face api client
-const hf = new InferenceClient(process.env.HUGGINGFACE_API_KEY);
+// initialize the Google Generative AI client
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
+// opted to use gemini-2.5-flash-lite here (faster, no thinking mode, perfect for simple tasks)
+const model = genAI.getGenerativeModel({
+  model: "gemini-2.5-flash-lite",
+});
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -36,7 +41,7 @@ export async function POST(request) {
     // step 1: checking the cache
     const cachedResults = await checkCache(query);
     if (cachedResults) {
-      console.log('✅ Cache hit!'); //ai console logs to see where i messed up
+      console.log('✅ Cache hit!');
       return NextResponse.json({ 
         products: cachedResults,
         cached: true 
@@ -45,30 +50,33 @@ export async function POST(request) {
 
     // step 2: process with AI
     console.log('Processing query with AI...');
-    const optimizedKeywords = await processQueryWithHuggingFace(query);
+    const optimizedKeywords = await processQueryWithGemini(query);
     console.log('🎯 Optimized keywords:', optimizedKeywords);
 
     // step 3: search amazon
     console.log('Searching Amazon...');
     const products = await searchAmazon(optimizedKeywords);
 
-    // step 4: filter
-    console.log('Filtering products...');
+    // step 4: filter and score
+    console.log('Filtering and scoring products...');
     console.log(`Before filtering: ${products.length} products`);
     
-    const filteredProducts = products.filter(p => 
+    // Add relevance scores to all products
+    const scoredProducts = products.map(p => ({
+      ...p,
+      relevanceScore: calculateRelevanceScore(p, optimizedKeywords)
+    }));
+
+    const filteredProducts = scoredProducts.filter(p => 
       p.rating >= MIN_RATING && p.reviewCount >= MIN_REVIEWS
     );
     
     console.log(`After filtering: ${filteredProducts.length} products`);
     
-    // if no products pass the filter, lower the standards temporarily
-    // probably dont need this anymore after i implemented the filters
     if (filteredProducts.length === 0 && products.length > 0) {
       console.log('⚠️ No products met criteria, using relaxed filter...');
       
-      // relaxed filter: just require some reviews
-      const relaxedFiltered = products.filter(p => 
+      const relaxedFiltered = scoredProducts.filter(p => 
         p.reviewCount > 10 || p.rating > 0
       );
       
@@ -76,20 +84,37 @@ export async function POST(request) {
         console.log(`✅ Found ${relaxedFiltered.length} products with relaxed criteria`);
         filteredProducts.push(...relaxedFiltered);
       } else {
-
-        // last resort: just return top products by price
-        console.log('⚠️ Using all products sorted by price');
-        filteredProducts.push(...products);
+        console.log('⚠️ Using all products');
+        filteredProducts.push(...scoredProducts);
       }
     }
 
-    // step 5: sort by price
-    const sortedProducts = filteredProducts.sort((a, b) => b.price - a.price);
+    // step 5: sort by relevance by default
+    // Note: Frontend can apply additional sorting while keeping relevance as secondary factor
+    const sortedProducts = filteredProducts.sort((a, b) => {
+      // Primary sort: relevance score (higher is better)
+      if (b.relevanceScore !== a.relevanceScore) {
+        return b.relevanceScore - a.relevanceScore;
+      }
+      
+      // Secondary sort: rating (higher is better)
+      if (b.rating !== a.rating) {
+        return b.rating - a.rating;
+      }
+      
+      // Tertiary sort: review count (more reviews is better)
+      return b.reviewCount - a.reviewCount;
+    });
 
-    // step 6: get top results 
-    // return up to MAX_RESULTS * 3 to give frontend more data to work with?
+    // Log top products with their scores
+    console.log('\n🎯 Top products by relevance:');
+    sortedProducts.slice(0, 5).forEach((p, i) => {
+      console.log(`   ${i + 1}. [Score: ${p.relevanceScore}] ${p.title.substring(0, 60)}... (${p.rating}⭐, ${p.reviewCount} reviews)`);
+    });
+
+    // step 6: get top results
     const topProducts = sortedProducts.slice(0, MAX_RESULTS * 3);
-    console.log(`Returning top ${topProducts.length} products (requested ${MAX_RESULTS})`);
+    console.log(`\nReturning top ${topProducts.length} products (requested ${MAX_RESULTS})`);
 
     // step 7: fetch reviews for each product
     console.log('\n📝 Fetching reviews...');
@@ -99,10 +124,8 @@ export async function POST(request) {
         try {
           console.log(`\n📝 Product ${index + 1}/${topProducts.length}: ${product.title.substring(0, 50)}...`);
           
-          // fetch reviews
           const reviews = await fetchRecentReviews(product.asin);
           
-          // if no reviews found, add placeholder (mock data)
           if (reviews.length === 0) {
             console.log(`   ℹ️ No recent reviews available`);
             return { 
@@ -131,7 +154,7 @@ export async function POST(request) {
 
     console.log(`\n✅ Completed! Returning ${productsWithReviews.length} products with reviews`);
 
-    // Step 8: Cache results
+    // step 8: Cache results
     await cacheResults(query, productsWithReviews);
 
     return NextResponse.json({ 
@@ -149,6 +172,35 @@ export async function POST(request) {
 }
 
 // ==================== HELPER FUNCTIONS ====================
+
+/* calculate relevance score */
+function calculateRelevanceScore(product, searchKeywords) {
+  const titleLower = product.title.toLowerCase();
+  const keywordsLower = searchKeywords.toLowerCase();
+  const keywords = keywordsLower.split(' ').filter(k => k.length > 2);
+  
+  let score = 0;
+  
+  // Exact phrase match (highest priority)
+  if (titleLower.includes(keywordsLower)) {
+    score += 100;
+  }
+  
+  // Individual keyword matches
+  keywords.forEach(keyword => {
+    if (titleLower.includes(keyword)) {
+      score += 10;
+    }
+  });
+  
+  // Bonus for early position of keywords in title
+  const firstKeywordPosition = titleLower.indexOf(keywords[0]);
+  if (firstKeywordPosition !== -1) {
+    score += Math.max(0, 20 - firstKeywordPosition);
+  }
+  
+  return score;
+}
 
 /* check cache */
 async function checkCache(query) {
@@ -192,44 +244,74 @@ async function cacheResults(query, products) {
   }
 }
 
-/* AI processing */
-/* AI processing - alternative with reliable model */
-async function processQueryWithHuggingFace(userQuery) {
+/* AI processing with Gemini 2.5 Flash */
+async function processQueryWithGemini(userQuery) {
   try {
-    // Try AI first
-    const response = await hf.textGeneration({
-      model: 'HuggingFaceH4/zephyr-7b-beta',  // More reliable!
-      inputs: `Simplify this Amazon search: "${userQuery}". Output only 2-4 keywords:`,
-      parameters: {
-        max_new_tokens: 20,
-        temperature: 0.1,
-        return_full_text: false
+    const prompt = `You are a search query optimizer for Amazon product searches.
+
+User query: "${userQuery}"
+
+Task: Extract the 2-5 most important keywords for an Amazon search. Remove filler words like "I want", "I need", "looking for", "best", "good", etc. However include brand names or item names like "Baritone Saxophone", or "Nike Sweater", and well known brands "Celcius" vs. other items that just includes the word "celcius"
+
+Examples:
+- "I want a good water bottle for school" → "water bottle school"
+- "looking for the best wireless headphones" → "wireless headphones"
+- "I need running shoes for marathon training" → "running shoes marathon"
+- "I'm looking for a baritone saxophone" → "baritone saxophone"
+
+Now simplify the user query above. Return only the essential keywords:`;
+
+    console.log('🤖 Calling Gemini 2.5 Flash...');
+
+    // generate content using the model
+    const result = await model.generateContent({
+      contents: [{
+        role: "user",
+        parts: [{ text: prompt }]
+      }],
+      generationConfig: {
+        temperature: 0.3,
+        maxOutputTokens: 50,
       }
     });
 
-    let optimizedQuery = response.generated_text
-      .trim()
-      .replace(/['"]/g, '')
-      .split('\n')[0];
+    const response = result.response;
+    
+    // debug: log full response
+    console.log('📦 Full response:', JSON.stringify(response, null, 2));
+    
+    const text = response.text().trim();
+    
+    console.log('📝 Raw text:', text);
 
-    if (optimizedQuery && optimizedQuery.length > 0) {
-      console.log('🤖 AI optimized:', userQuery, '→', optimizedQuery);
-      return optimizedQuery;
+    if (!text || text.length === 0) {
+      console.log("⚠️ Empty response from Gemini, using fallback");
+      throw new Error("Empty response");
     }
-  } catch (error) {
-    console.log('⚠️ AI failed, using fallback');
-  }
 
-  // fallback to simple optimization
-  const fallback = userQuery
-    .toLowerCase()
-    .replace(/\b(i need|i want|looking for|best|find me|show me|get me)\b/gi, '')
-    .replace(/\b(a|an|the|for|to|in|on|at|with)\b/gi, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  
-  console.log('🔄 Fallback:', fallback);
-  return fallback || userQuery;
+    const cleaned = text
+      .replace(/[\n"]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    console.log("🤖 Gemini optimized:", userQuery, "→", cleaned);
+
+    return cleaned;
+
+  } catch (err) {
+    console.log("⚠️ Gemini failed → using fallback.", err.message);
+
+    // fallback to simple optimization
+    const fallback = userQuery
+      .toLowerCase()
+      .replace(/\b(i need|i want|looking for|best|find me|show me|get me|good|great)\b/gi, "")
+      .replace(/\b(a|an|the|for|to|in|on|at|with)\b/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    
+    console.log("🔄 Fallback result:", fallback);
+    return fallback || userQuery;
+  }
 }
 
 /* search amazon */
@@ -292,7 +374,6 @@ async function searchAmazon(keywords) {
         if (!title) title = $element.find('.a-text-normal').text().trim();
         if (!title) return;
 
-        // debug: log HTML for first product
         if (products.length === 0 && process.env.NODE_ENV === 'development') {
           console.log('\n🔍 DEBUG - First product HTML structure:');
           console.log('Rating elements:', $element.find('i[class*="star"]').html());
@@ -316,11 +397,7 @@ async function searchAmazon(keywords) {
         
         if (price === 0) return;
 
-        // extract rating - try multiple methods
         let rating = 0;
-        
-        // method 1: From aria-label (most reliable based on debug)
-        // this works the best
         const ariaLabels = $element.find('[aria-label]').map((i, el) => $(el).attr('aria-label')).get();
         for (const label of ariaLabels) {
           const match = label.match(/([\d.]+)\s*out\s*of\s*5\s*stars/i);
@@ -330,7 +407,6 @@ async function searchAmazon(keywords) {
           }
         }
         
-        // method 2: Try .a-icon-star-small (fallback)
         if (rating === 0) {
           const ratingText = $element.find('.a-icon-star-small .a-icon-alt').first().text();
           if (ratingText) {
@@ -339,20 +415,15 @@ async function searchAmazon(keywords) {
           }
         }
         
-        // method 3: Look in element text
         if (rating === 0) {
           const fullText = $element.text();
           const match = fullText.match(/([\d.]+)\s*out\s*of\s*5/i);
           if (match) rating = parseFloat(match[1]);
         }
 
-        // extract review count - try multiple methods
         let reviewCount = 0;
-        
-        // method 1: From aria-labels (most reliable based on debug)
         const ariaLabelValues = $element.find('[aria-label]').map((i, el) => $(el).attr('aria-label')).get();
         for (const label of ariaLabelValues) {
-          // Look for patterns like "1,234 ratings" or "1234 reviews"
           const match = label.match(/([\d,]+)\s*(rating|review)s?/i);
           if (match) {
             const count = parseInt(match[1].replace(/,/g, ''));
@@ -360,7 +431,6 @@ async function searchAmazon(keywords) {
           }
         }
         
-        // method 2: Look in element text
         if (reviewCount === 0) {
           const fullText = $element.text();
           const patterns = [
@@ -383,20 +453,19 @@ async function searchAmazon(keywords) {
           imageUrl = $element.find('img').first().attr('src') || '';
         }
 
-        // only add product if we have at least: title, price, and (rating OR reviewCount)
         if (title && price > 0 && (rating > 0 || reviewCount > 0)) {
           products.push({
             id: asin,
             asin,
             title,
             price,
-            rating: rating || 0,  // Default to 0 if not found
-            reviewCount: reviewCount || 0,  // Default to 0 if not found
+            rating: rating || 0,
+            reviewCount: reviewCount || 0,
             imageUrl,
             amazonLink: "https://amazon.com/dp/" + asin
           });
 
-          console.log(`   ✓ Product ${products.length}: ${title.substring(0, 50)}... (${price}, ${rating}⭐, ${reviewCount} reviews)`);
+          console.log(`   ✓ Product ${products.length}: ${title.substring(0, 50)}... ($${price}, ${rating}⭐, ${reviewCount} reviews)`);
         }
       } catch (error) {
         console.warn('Failed to parse product:', error.message);
@@ -424,7 +493,6 @@ async function fetchRecentReviews(asin) {
   try {
     console.log(`   📝 Fetching reviews for ASIN: ${asin}`);
     
-    // add delay to avoid rate limiting from amazon
     await new Promise(resolve => setTimeout(resolve, 1500));
     
     const reviewsUrl = `https://www.amazon.com/product-reviews/${asin}/ref=cm_cr_arp_d_viewopt_sr?sortBy=recent&pageNumber=1`;
@@ -460,7 +528,6 @@ async function fetchRecentReviews(asin) {
       try {
         const $review = $(element);
         
-        // extract date
         let reviewDate = null;
         const dateText = $review.find('[data-hook="review-date"]').text();
         let dateMatch = dateText.match(/on\s+([A-Z][a-z]+\s+\d{1,2},\s+\d{4})/);
@@ -468,13 +535,10 @@ async function fetchRecentReviews(asin) {
           reviewDate = new Date(dateMatch[1]);
         }
 
-        // skip if older than 3 months
-        // this doesn't work yet (TODO)
         if (reviewDate && reviewDate < threeMonthsAgo) {
           return;
         }
 
-        // extract rating
         let rating = 0;
         const ratingElement = $review.find('[data-hook="review-star-rating"]');
         if (ratingElement.length > 0) {
@@ -485,17 +549,12 @@ async function fetchRecentReviews(asin) {
           }
         }
 
-        // extract title
         let title = $review.find('[data-hook="review-title"]').text().trim();
         title = title.replace(/[\d.]+\s*out of\s*5\s*stars\s*/i, '').trim();
 
-        // extract body
-        // this does not work (TODO)
         let body = $review.find('[data-hook="review-body"]').text().trim();
         body = body.replace(/Read more/gi, '').trim();
 
-        // extract reviewer
-        // this does not work (TODO)
         let reviewer = $review.find('.a-profile-name').text().trim() || 'Amazon Customer';
 
         if ((title || body) && rating > 0) {
@@ -530,7 +589,7 @@ async function fetchRecentReviews(asin) {
   }
 }
 
-/* mock data products for fallback*/
+/* mock data products */
 function getMockProducts() {
   return [
     {
