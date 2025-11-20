@@ -293,10 +293,10 @@ export default function Home() {
             </div>
 
             {/* active filters display */}
-            {(filters.priceMin > 0 || filters.priceMax < 1000 || filters.minRating > 4.0 || filters.minReviews > 50 || filters.maxResults !== 5) && (
+            {(filters.priceMin > 0 || filters.priceMax < 1000000 || filters.minRating > 4.0 || filters.minReviews > 50 || filters.maxResults !== 5) && (
               <div className="flex flex-wrap gap-2 items-center">
                 <span className="text-sm text-gray-600 font-medium">Active filters:</span>
-                {filters.priceMin > 0 || filters.priceMax < 1000 ? (
+                {filters.priceMin > 0 || filters.priceMax < 1000000 ? (
                   <span className="px-3 py-1 bg-orange-100 text-orange-700 rounded-full text-sm font-medium">
                     ${filters.priceMin} - ${filters.priceMax}
                   </span>
