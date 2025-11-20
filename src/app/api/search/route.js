@@ -3,10 +3,10 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import * as cheerio from 'cheerio';
 import { createClient } from '@supabase/supabase-js';
 
-// initialize the Google Generative AI client
+// Initialize the Google Generative AI client
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// opted to use gemini-2.5-flash-lite here (faster, no thinking mode, perfect for simple tasks)
+// Use gemini-2.5-flash-lite (faster, no thinking mode, perfect for simple tasks)
 const model = genAI.getGenerativeModel({
   model: "gemini-2.5-flash-lite",
 });
@@ -57,17 +57,11 @@ export async function POST(request) {
     console.log('Searching Amazon...');
     const products = await searchAmazon(optimizedKeywords);
 
-    // step 4: filter and score
-    console.log('Filtering and scoring products...');
+    // step 4: filter
+    console.log('Filtering products...');
     console.log(`Before filtering: ${products.length} products`);
     
-    // Add relevance scores to all products
-    const scoredProducts = products.map(p => ({
-      ...p,
-      relevanceScore: calculateRelevanceScore(p, optimizedKeywords)
-    }));
-
-    const filteredProducts = scoredProducts.filter(p => 
+    const filteredProducts = products.filter(p => 
       p.rating >= MIN_RATING && p.reviewCount >= MIN_REVIEWS
     );
     
@@ -76,7 +70,7 @@ export async function POST(request) {
     if (filteredProducts.length === 0 && products.length > 0) {
       console.log('⚠️ No products met criteria, using relaxed filter...');
       
-      const relaxedFiltered = scoredProducts.filter(p => 
+      const relaxedFiltered = products.filter(p => 
         p.reviewCount > 10 || p.rating > 0
       );
       
@@ -84,37 +78,17 @@ export async function POST(request) {
         console.log(`✅ Found ${relaxedFiltered.length} products with relaxed criteria`);
         filteredProducts.push(...relaxedFiltered);
       } else {
-        console.log('⚠️ Using all products');
-        filteredProducts.push(...scoredProducts);
+        console.log('⚠️ Using all products sorted by price');
+        filteredProducts.push(...products);
       }
     }
 
-    // step 5: sort by relevance by default
-    // Note: Frontend can apply additional sorting while keeping relevance as secondary factor
-    const sortedProducts = filteredProducts.sort((a, b) => {
-      // Primary sort: relevance score (higher is better)
-      if (b.relevanceScore !== a.relevanceScore) {
-        return b.relevanceScore - a.relevanceScore;
-      }
-      
-      // Secondary sort: rating (higher is better)
-      if (b.rating !== a.rating) {
-        return b.rating - a.rating;
-      }
-      
-      // Tertiary sort: review count (more reviews is better)
-      return b.reviewCount - a.reviewCount;
-    });
-
-    // Log top products with their scores
-    console.log('\n🎯 Top products by relevance:');
-    sortedProducts.slice(0, 5).forEach((p, i) => {
-      console.log(`   ${i + 1}. [Score: ${p.relevanceScore}] ${p.title.substring(0, 60)}... (${p.rating}⭐, ${p.reviewCount} reviews)`);
-    });
+    // step 5: sort by price
+    const sortedProducts = filteredProducts.sort((a, b) => b.price - a.price);
 
     // step 6: get top results
     const topProducts = sortedProducts.slice(0, MAX_RESULTS * 3);
-    console.log(`\nReturning top ${topProducts.length} products (requested ${MAX_RESULTS})`);
+    console.log(`Returning top ${topProducts.length} products (requested ${MAX_RESULTS})`);
 
     // step 7: fetch reviews for each product
     console.log('\n📝 Fetching reviews...');
@@ -154,7 +128,7 @@ export async function POST(request) {
 
     console.log(`\n✅ Completed! Returning ${productsWithReviews.length} products with reviews`);
 
-    // step 8: Cache results
+    // Step 8: Cache results
     await cacheResults(query, productsWithReviews);
 
     return NextResponse.json({ 
@@ -172,35 +146,6 @@ export async function POST(request) {
 }
 
 // ==================== HELPER FUNCTIONS ====================
-
-/* calculate relevance score */
-function calculateRelevanceScore(product, searchKeywords) {
-  const titleLower = product.title.toLowerCase();
-  const keywordsLower = searchKeywords.toLowerCase();
-  const keywords = keywordsLower.split(' ').filter(k => k.length > 2);
-  
-  let score = 0;
-  
-  // Exact phrase match (highest priority)
-  if (titleLower.includes(keywordsLower)) {
-    score += 100;
-  }
-  
-  // Individual keyword matches
-  keywords.forEach(keyword => {
-    if (titleLower.includes(keyword)) {
-      score += 10;
-    }
-  });
-  
-  // Bonus for early position of keywords in title
-  const firstKeywordPosition = titleLower.indexOf(keywords[0]);
-  if (firstKeywordPosition !== -1) {
-    score += Math.max(0, 20 - firstKeywordPosition);
-  }
-  
-  return score;
-}
 
 /* check cache */
 async function checkCache(query) {
@@ -244,45 +189,42 @@ async function cacheResults(query, products) {
   }
 }
 
-/* AI processing with Gemini 2.5 Flash */
+/* AI processing with Gemini 2.5 Flash-Lite */
 async function processQueryWithGemini(userQuery) {
   try {
-    const prompt = `You are a search query optimizer for Amazon product searches.
+    // Simpler, more direct prompt
+    const prompt = `Simplify this search for Amazon: "${userQuery}"
 
-User query: "${userQuery}"
-
-Task: Extract the 2-5 most important keywords for an Amazon search. Remove filler words like "I want", "I need", "looking for", "best", "good", etc. However include brand names or item names like "Baritone Saxophone", or "Nike Sweater", and well known brands "Celcius" vs. other items that just includes the word "celcius"
+Remove filler words (I want, I need, looking for, best, good, great, a, an, the).
+Return ONLY 2-4 essential product keywords.
 
 Examples:
-- "I want a good water bottle for school" → "water bottle school"
-- "looking for the best wireless headphones" → "wireless headphones"
-- "I need running shoes for marathon training" → "running shoes marathon"
-- "I'm looking for a baritone saxophone" → "baritone saxophone"
+"I want a good water bottle for school" → water bottle school
+"looking for wireless headphones" → wireless headphones
+"I need running shoes for marathon" → running shoes marathon
 
-Now simplify the user query above. Return only the essential keywords:`;
+Your answer (keywords only):`;
 
-    console.log('🤖 Calling Gemini 2.5 Flash...');
+    console.log('🤖 Calling Gemini 2.5 Flash-Lite...');
 
-    // generate content using the model
+    // Generate content using the model
     const result = await model.generateContent({
       contents: [{
         role: "user",
         parts: [{ text: prompt }]
       }],
       generationConfig: {
-        temperature: 0.3,
-        maxOutputTokens: 50,
+        temperature: 0.2,
+        maxOutputTokens: 20,  // Keep it small - we only need a few words
+        topK: 1,  // More focused responses
+        topP: 0.8,
       }
     });
 
     const response = result.response;
-    
-    // debug: log full response
-    console.log('📦 Full response:', JSON.stringify(response, null, 2));
-    
     const text = response.text().trim();
     
-    console.log('📝 Raw text:', text);
+    console.log('📝 Gemini response:', text);
 
     if (!text || text.length === 0) {
       console.log("⚠️ Empty response from Gemini, using fallback");
@@ -294,18 +236,19 @@ Now simplify the user query above. Return only the essential keywords:`;
       .replace(/\s+/g, " ")
       .trim();
 
-    console.log("🤖 Gemini optimized:", userQuery, "→", cleaned);
+    console.log("✅ Gemini optimized:", userQuery, "→", cleaned);
 
     return cleaned;
 
   } catch (err) {
     console.log("⚠️ Gemini failed → using fallback.", err.message);
 
-    // fallback to simple optimization
+    // Fallback to simple optimization
     const fallback = userQuery
       .toLowerCase()
-      .replace(/\b(i need|i want|looking for|best|find me|show me|get me|good|great)\b/gi, "")
+      .replace(/\b(i need|i want|i'm|im|looking for|best|find me|show me|get me|good|great)\b/gi, "")
       .replace(/\b(a|an|the|for|to|in|on|at|with)\b/gi, " ")
+      .replace(/,/g, " ")
       .replace(/\s+/g, " ")
       .trim();
     
@@ -320,8 +263,16 @@ async function searchAmazon(keywords) {
     const searchUrl = `https://www.amazon.com/s?k=${encodeURIComponent(keywords)}`;
     console.log('🔗 Search URL:', searchUrl);
     
-    const response = await fetch(searchUrl, {
-      headers: {
+    // Use ScraperAPI if available, otherwise direct fetch
+    const scraperApiKey = process.env.SCRAPER_API_KEY;
+    const fetchUrl = scraperApiKey 
+      ? `http://api.scraperapi.com?api_key=${scraperApiKey}&url=${encodeURIComponent(searchUrl)}&country_code=us`
+      : searchUrl;
+    
+    console.log(scraperApiKey ? '🔧 Using ScraperAPI for product search' : '⚠️ Direct Amazon request (may get blocked)');
+    
+    const response = await fetch(fetchUrl, {
+      headers: scraperApiKey ? {} : {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.5',
@@ -331,7 +282,8 @@ async function searchAmazon(keywords) {
         'Sec-Fetch-Dest': 'document',
         'Sec-Fetch-Mode': 'navigate',
         'Sec-Fetch-Site': 'none'
-      }
+      },
+      signal: AbortSignal.timeout(20000)
     });
 
     if (!response.ok) {
