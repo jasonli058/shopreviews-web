@@ -87,57 +87,17 @@ export async function POST(request) {
     const sortedProducts = filteredProducts.sort((a, b) => b.price - a.price);
 
     // step 6: get top results
-    const topProducts = sortedProducts.slice(0, MAX_RESULTS * 3);
-    console.log(`Returning top ${topProducts.length} products (requested ${MAX_RESULTS})`);
 
-    // step 7: fetch reviews for each product (sequential to avoid rate limits)
-    console.log('\n📝 Fetching reviews...');
-    
-    const productsWithReviews = [];
-    for (let i = 0; i < topProducts.length; i++) {
-      const product = topProducts[i];
-      try {
-        console.log(`\n📝 Product ${i + 1}/${topProducts.length}: ${product.title.substring(0, 50)}...`);
-        
-        const reviews = await fetchRecentReviews(product.asin);
-        
-        if (reviews.length === 0) {
-          console.log(`   ℹ️ No recent reviews available`);
-          productsWithReviews.push({ 
-            ...product, 
-            reviews: [{
-              rating: product.rating || 4.5,
-              title: 'No recent reviews',
-              body: 'This product has no recent reviews from the past 3 months. Check Amazon for all reviews.',
-              reviewer: 'System',
-              date: 'N/A'
-            }]
-          });
-        } else {
-          productsWithReviews.push({ ...product, reviews });
-        }
-        
-      } catch (error) {
-        console.error(`   ❌ Error fetching reviews:`, error.message);
-        productsWithReviews.push({ 
-          ...product, 
-          reviews: []
-        });
-      }
-      
-      // Wait 250ms between requests to stay under rate limit (max 4 req/sec)
-      if (i < topProducts.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
-    }
+    //max 1000 products
+    const topProducts = sortedProducts.slice(0, MAX_RESULTS * 200);
 
-    console.log(`\n✅ Completed! Returning ${productsWithReviews.length} products with reviews`);
+    console.log(`✅ Returning ${topProducts.length} products (requested ${MAX_RESULTS})`);
 
-    // Step 8: Cache results
-    await cacheResults(query, productsWithReviews);
+    // Step 7: Cache results
+    await cacheResults(query, topProducts);
 
     return NextResponse.json({ 
-      products: productsWithReviews,
+      products: topProducts,
       cached: false 
     });
 
@@ -442,107 +402,6 @@ async function searchAmazon(keywords) {
     console.error('Amazon scraping error:', error);
     console.log('⚠️ Returning mock data');
     return getMockProducts();
-  }
-}
-
-/* fetch reviews */
-async function fetchRecentReviews(asin) {
-  try {
-    console.log(`   📝 Fetching reviews for ASIN: ${asin}`);
-    
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    
-    const reviewsUrl = `https://www.amazon.com/product-reviews/${asin}/ref=cm_cr_arp_d_viewopt_sr?sortBy=recent&pageNumber=1`;
-    
-    const response = await fetch(reviewsUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Referer': `https://www.amazon.com/dp/${asin}`,
-      },
-      signal: AbortSignal.timeout(15000)
-    });
-
-    if (!response.ok) {
-      console.warn(`   ⚠️ Reviews fetch failed: ${response.status}`);
-      return [];
-    }
-
-    const html = await response.text();
-    const $ = cheerio.load(html);
-
-    const reviews = [];
-    const threeMonthsAgo = new Date();
-    threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
-
-    const reviewElements = $('[data-hook="review"]');
-    console.log(`   Found ${reviewElements.length} review elements`);
-
-    reviewElements.slice(0, 8).each((i, element) => {
-      if (reviews.length >= 3) return false;
-
-      try {
-        const $review = $(element);
-        
-        let reviewDate = null;
-        const dateText = $review.find('[data-hook="review-date"]').text();
-        let dateMatch = dateText.match(/on\s+([A-Z][a-z]+\s+\d{1,2},\s+\d{4})/);
-        if (dateMatch) {
-          reviewDate = new Date(dateMatch[1]);
-        }
-
-        if (reviewDate && reviewDate < threeMonthsAgo) {
-          return;
-        }
-
-        let rating = 0;
-        const ratingElement = $review.find('[data-hook="review-star-rating"]');
-        if (ratingElement.length > 0) {
-          const ratingText = ratingElement.text() || ratingElement.find('.a-icon-alt').text();
-          const ratingMatch = ratingText.match(/([\d.]+)\s*out of/i);
-          if (ratingMatch) {
-            rating = parseFloat(ratingMatch[1]);
-          }
-        }
-
-        let title = $review.find('[data-hook="review-title"]').text().trim();
-        title = title.replace(/[\d.]+\s*out of\s*5\s*stars\s*/i, '').trim();
-
-        let body = $review.find('[data-hook="review-body"]').text().trim();
-        body = body.replace(/Read more/gi, '').trim();
-
-        let reviewer = $review.find('.a-profile-name').text().trim() || 'Amazon Customer';
-
-        if ((title || body) && rating > 0) {
-          const formattedDate = reviewDate 
-            ? reviewDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-            : 'Recent';
-
-          reviews.push({
-            rating,
-            title: title || 'Great product!',
-            body: body 
-              ? (body.substring(0, 300) + (body.length > 300 ? '...' : ''))
-              : 'Customer recommends this product.',
-            reviewer,
-            date: formattedDate
-          });
-
-          console.log(`   ✓ Review ${reviews.length}: ${rating}⭐ - ${title.substring(0, 40)}...`);
-        }
-
-      } catch (error) {
-        console.warn(`   ⚠️ Failed to parse review:`, error.message);
-      }
-    });
-
-    console.log(`   📝 Extracted ${reviews.length} reviews`);
-    return reviews;
-
-  } catch (error) {
-    console.error(`   ❌ Review fetch error:`, error.message);
-    return [];
   }
 }
 

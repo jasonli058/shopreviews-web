@@ -313,7 +313,7 @@ export default function Home() {
                 )}
                 {filters.maxResults !== 5 && (
                   <span className="px-3 py-1 bg-orange-100 text-orange-700 rounded-full text-sm font-medium">
-                    Top {filters.maxResults}
+                    {filters.maxResults === 999 ? "All Results" : `Top ${filters.maxResults}`}
                   </span>
                 )}
               </div>

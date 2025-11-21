@@ -239,7 +239,7 @@ export default function FilterPanel({ filters, onFilterChange, onApplyFilters })
                 )}
               </div>
 
-              {/* number of results fitler */}
+              {/* number of results filter */}
               <div>
                 <button
                   onClick={() => toggleSection('results')}
@@ -260,7 +260,7 @@ export default function FilterPanel({ filters, onFilterChange, onApplyFilters })
                   <div className="px-4 pb-4 space-y-3">
                     <div className="flex items-center justify-center">
                       <span className="text-4xl font-bold text-orange-600">
-                        {filters.maxResults}
+                        {filters.maxResults === 999 ? "All Results" : filters.maxResults}
                       </span>
                     </div>
                     <div className="grid grid-cols-5 gap-2 text-gray-400">
@@ -278,8 +278,23 @@ export default function FilterPanel({ filters, onFilterChange, onApplyFilters })
                         </button>
                       ))}
                     </div>
+                    
+                    {/* Show All Results Button */}
+                    <button
+                      onClick={() => onFilterChange({ ...filters, maxResults: 999 })}
+                      className={`w-full py-2.5 rounded-lg font-semibold transition-all ${
+                        filters.maxResults === 999
+                          ? 'bg-gradient-to-r from-orange-500 to-orange-600 text-white shadow-lg'
+                          : 'bg-gray-50 hover:bg-gray-100 text-gray-700 border-2 border-gray-200'
+                      }`}
+                    >
+                      {filters.maxResults === 999 ? '✓ Showing All' : 'Show All Results'}
+                    </button>
+                    
                     <p className="text-xs text-gray-500 text-center">
-                      Top {filters.maxResults} products will be displayed
+                      {filters.maxResults === 999 
+                        ? 'All filtered products will be displayed' 
+                        : `Top ${filters.maxResults} products will be displayed`}
                     </p>
                   </div>
                 )}
