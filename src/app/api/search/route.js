@@ -90,11 +90,32 @@ export async function POST(request) {
     const topProducts = sortedProducts.slice(0, MAX_RESULTS * 3);
     console.log(`Returning top ${topProducts.length} products (requested ${MAX_RESULTS})`);
 
+    // step 6.5: fetch product descriptions (sequential to avoid rate limits)
+    console.log('\n📄 Fetching product descriptions...');
+    
+    const productsWithDescriptions = [];
+    for (let i = 0; i < topProducts.length; i++) {
+      const product = topProducts[i];
+      try {
+        console.log(`📄 Product ${i + 1}/${topProducts.length}: Fetching description...`);
+        const description = await fetchProductDescription(product.asin);
+        productsWithDescriptions.push({ ...product, description });
+      } catch (error) {
+        console.error(`   ❌ Error fetching description:`, error.message);
+        productsWithDescriptions.push({ ...product, description: '' });
+      }
+      
+      // Wait 250ms between requests to stay under rate limit (max 4 req/sec)
+      if (i < topProducts.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 250));
+      }
+    }
+
     // step 7: fetch reviews for each product
     console.log('\n📝 Fetching reviews...');
     
     const productsWithReviews = await Promise.all(
-      topProducts.map(async (product, index) => {
+      productsWithDescriptions.map(async (product, index) => {
         try {
           console.log(`\n📝 Product ${index + 1}/${topProducts.length}: ${product.title.substring(0, 50)}...`);
           
@@ -437,6 +458,146 @@ async function searchAmazon(keywords) {
     console.error('Amazon scraping error:', error);
     console.log('⚠️ Returning mock data');
     return getMockProducts();
+  }
+}
+
+/* fetch product description */
+async function fetchProductDescription(asin) {
+  try {
+    console.log(`   📄 Fetching description for ASIN: ${asin}`);
+    
+    // Small delay to avoid rate limiting
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    const productUrl = `https://www.amazon.com/dp/${asin}`;
+    
+    // Use ScraperAPI if available
+    const scraperApiKey = process.env.SCRAPER_API_KEY;
+    const fetchUrl = scraperApiKey 
+      ? `http://api.scraperapi.com?api_key=${scraperApiKey}&url=${encodeURIComponent(productUrl)}&country_code=us`
+      : productUrl;
+    
+    const response = await fetch(fetchUrl, {
+      headers: scraperApiKey ? {} : {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+      signal: AbortSignal.timeout(15000)
+    });
+
+    if (!response.ok) {
+      console.warn(`   ⚠️ Description fetch failed: ${response.status}`);
+      return '';
+    }
+
+    const html = await response.text();
+    const $ = cheerio.load(html);
+
+    // Try to find "About this item" bullet points
+    const bulletPoints = [];
+    
+    // Method 1: Feature bullets div
+    $('#feature-bullets ul li span.a-list-item').each((i, el) => {
+      const text = $(el).text().trim();
+      if (text && text.length > 10) {
+        bulletPoints.push(text);
+      }
+    });
+    
+    // Method 2: Alternative selector
+    if (bulletPoints.length === 0) {
+      $('.a-unordered-list.a-vertical.a-spacing-mini li span').each((i, el) => {
+        const text = $(el).text().trim();
+        if (text && text.length > 10) {
+          bulletPoints.push(text);
+        }
+      });
+    }
+    
+    // Method 3: Product description
+    if (bulletPoints.length === 0) {
+      const productDesc = $('#productDescription p').text().trim();
+      if (productDesc && productDesc.length > 20) {
+        bulletPoints.push(productDesc);
+      }
+    }
+
+    const description = bulletPoints.join(' ');
+    console.log(`   ✓ Found ${bulletPoints.length} bullet points (${description.length} chars)`);
+    
+    return description;
+
+  } catch (error) {
+    console.error(`   ❌ Description fetch error:`, error.message);
+    return '';
+  }
+}
+
+/* fetch product description */
+async function fetchProductDescription(asin) {
+  try {
+    console.log(`   📄 Fetching description for ASIN: ${asin}`);
+    
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    const productUrl = `https://www.amazon.com/dp/${asin}`;
+    
+    const scraperApiKey = process.env.SCRAPER_API_KEY;
+    const fetchUrl = scraperApiKey 
+      ? `http://api.scraperapi.com?api_key=${scraperApiKey}&url=${encodeURIComponent(productUrl)}&country_code=us`
+      : productUrl;
+    
+    const response = await fetch(fetchUrl, {
+      headers: scraperApiKey ? {} : {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+      signal: AbortSignal.timeout(15000)
+    });
+
+    if (!response.ok) {
+      console.warn(`   ⚠️ Description fetch failed: ${response.status}`);
+      return '';
+    }
+
+    const html = await response.text();
+    const $ = cheerio.load(html);
+
+    const bulletPoints = [];
+    
+    $('#feature-bullets ul li span.a-list-item').each((i, el) => {
+      const text = $(el).text().trim();
+      if (text && text.length > 10) {
+        bulletPoints.push(text);
+      }
+    });
+    
+    if (bulletPoints.length === 0) {
+      $('.a-unordered-list.a-vertical.a-spacing-mini li span').each((i, el) => {
+        const text = $(el).text().trim();
+        if (text && text.length > 10) {
+          bulletPoints.push(text);
+        }
+      });
+    }
+    
+    if (bulletPoints.length === 0) {
+      const productDesc = $('#productDescription p').text().trim();
+      if (productDesc && productDesc.length > 20) {
+        bulletPoints.push(productDesc);
+      }
+    }
+
+    const description = bulletPoints.join(' ');
+    console.log(`   ✓ Found ${bulletPoints.length} bullet points (${description.length} chars)`);
+    
+    return description;
+
+  } catch (error) {
+    console.error(`   ❌ Description fetch error:`, error.message);
+    return '';
   }
 }
 

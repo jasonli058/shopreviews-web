@@ -10,16 +10,6 @@ const quicksand = Quicksand ({
   display: 'swap',
 });
 
-// const geistSans = Geist({
-//   variable: "--font-geist-sans",
-//   subsets: ["latin"],
-// });
-
-// const geistMono = Geist_Mono({
-//   variable: "--font-geist-mono",
-//   subsets: ["latin"],
-// });
-
 export const metadata = {
   title: 'ShopReviews',
   description: 'AI-powered search for the highest-rated Amazon products',
